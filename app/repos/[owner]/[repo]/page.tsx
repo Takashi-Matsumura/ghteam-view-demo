@@ -1,21 +1,46 @@
-// リポジトリ詳細：当該リポジトリの 4 指標を表示。
+// リポジトリ詳細：指標表示 + ローカルAIによるPR分析。
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   getCommitActivity,
   getContributors,
-  getOpenCounts,
+  getContributorsFallback,
+  getPullIssueStats,
   getRepo,
   getRepoLanguages,
 } from "@/lib/github/repos";
 import { aggregateLanguages, summarizeContributors } from "@/lib/github/aggregate";
-import type { ContributorStat, Languages, OpenCounts, WeeklyCommit } from "@/lib/github/types";
+import type {
+  ContributorStat,
+  ContributorSummary,
+  Languages,
+  PullIssueStats,
+  WeeklyCommit,
+} from "@/lib/github/types";
 import { MetricCard } from "@/components/MetricCard";
 import { CommitTrendChart } from "@/components/CommitTrendChart";
 import { LanguageBreakdown } from "@/components/LanguageBreakdown";
-import { OpenCountsBadges } from "@/components/OpenCountsBadges";
 import { ContributorList } from "@/components/ContributorList";
+import { PrAnalysisPanel } from "@/components/PrAnalysisPanel";
+
+const ZERO_STATS: PullIssueStats = {
+  prOpen: 0,
+  prMerged: 0,
+  prTotal: 0,
+  issueOpen: 0,
+  issueTotal: 0,
+};
+
+function StatBadge({ label, value, tone }: { label: string; value: number; tone: string }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-medium ${tone}`}
+    >
+      {label} {value}
+    </span>
+  );
+}
 
 export default async function RepoDetail({
   params,
@@ -27,22 +52,33 @@ export default async function RepoDetail({
   const meta = await getRepo(owner, repo);
   if (!meta) notFound();
 
-  // 4 指標を並列取得（1 件失敗してもページを落とさない）。
-  const [langsR, commitsR, contribsR, countsR] = await Promise.allSettled([
+  // 各指標を並列取得（1 件失敗してもページを落とさない）。
+  const [langsR, commitsR, contribsR, statsR] = await Promise.allSettled([
     getRepoLanguages(owner, repo),
     getCommitActivity(owner, repo),
     getContributors(owner, repo),
-    getOpenCounts(owner, repo),
+    getPullIssueStats(owner, repo),
   ]);
 
   const languages: Languages = langsR.status === "fulfilled" ? langsR.value : {};
   const commits: WeeklyCommit[] | null = commitsR.status === "fulfilled" ? commitsR.value : null;
   const contributors: ContributorStat[] | null =
     contribsR.status === "fulfilled" ? contribsR.value : null;
-  const counts: OpenCounts = countsR.status === "fulfilled" ? countsR.value : { prs: 0, issues: 0 };
+  const stats: PullIssueStats = statsR.status === "fulfilled" ? statsR.value : ZERO_STATS;
 
   const languageShares = aggregateLanguages([languages]);
-  const contributorSummaries = contributors ? summarizeContributors(contributors) : [];
+
+  // 貢献度: stats が空/202 ならリスト API へフォールバック。
+  let contributorSummaries: ContributorSummary[];
+  let contributorSource: "stats" | "list" | "none";
+  if (contributors && contributors.length > 0) {
+    contributorSummaries = summarizeContributors(contributors);
+    contributorSource = "stats";
+  } else {
+    const fb = await getContributorsFallback(owner, repo).catch(() => []);
+    contributorSummaries = fb;
+    contributorSource = fb.length > 0 ? "list" : "none";
+  }
 
   return (
     <main className="mx-auto w-full max-w-6xl px-6 py-8">
@@ -83,8 +119,40 @@ export default async function RepoDetail({
           )}
         </MetricCard>
 
-        <MetricCard title="Open PR / Issue">
-          <OpenCountsBadges counts={counts} size="lg" />
+        <MetricCard title="PR / Issue 内訳" subtitle="open / merged / total">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="w-12 text-xs text-zinc-500 dark:text-zinc-400">PR</span>
+              <StatBadge
+                label="open"
+                value={stats.prOpen}
+                tone="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+              />
+              <StatBadge
+                label="merged"
+                value={stats.prMerged}
+                tone="bg-violet-500/10 text-violet-700 dark:text-violet-400"
+              />
+              <StatBadge
+                label="total"
+                value={stats.prTotal}
+                tone="bg-zinc-500/10 text-zinc-700 dark:text-zinc-300"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="w-12 text-xs text-zinc-500 dark:text-zinc-400">Issue</span>
+              <StatBadge
+                label="open"
+                value={stats.issueOpen}
+                tone="bg-amber-500/10 text-amber-700 dark:text-amber-400"
+              />
+              <StatBadge
+                label="total"
+                value={stats.issueTotal}
+                tone="bg-zinc-500/10 text-zinc-700 dark:text-zinc-300"
+              />
+            </div>
+          </div>
         </MetricCard>
 
         <MetricCard title="言語・技術スタック構成" subtitle="このリポジトリ">
@@ -93,16 +161,31 @@ export default async function RepoDetail({
 
         <MetricCard
           title="メンバー別の貢献度"
-          subtitle="コントリビューター（コミット・追加/削除行）"
+          subtitle={
+            contributorSource === "list"
+              ? "コミット数のみ（GitHub統計が生成中のため簡易表示）"
+              : "コントリビューター（コミット・追加/削除行）"
+          }
           className="lg:col-span-2"
         >
-          {contributors === null ? (
+          {contributorSource === "none" ? (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
               統計を生成中です。数秒後に再読み込みしてください。
             </p>
           ) : (
-            <ContributorList contributors={contributorSummaries} variant="repo" />
+            <ContributorList
+              contributors={contributorSummaries}
+              variant={contributorSource === "list" ? "aggregate" : "repo"}
+            />
           )}
+        </MetricCard>
+
+        <MetricCard
+          title="AI で開発内容を分析"
+          subtitle="マージ済み PR をローカル AI が読んで言語化"
+          className="lg:col-span-3"
+        >
+          <PrAnalysisPanel owner={owner} repo={repo} />
         </MetricCard>
       </div>
     </main>

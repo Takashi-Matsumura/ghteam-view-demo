@@ -65,7 +65,48 @@ export interface OpenCounts {
   issues: number;
 }
 
+/** PR / Issue の内訳（詳細ページ用） */
+export interface PullIssueStats {
+  prOpen: number;
+  prMerged: number;
+  prTotal: number;
+  issueOpen: number;
+  issueTotal: number;
+}
+
 /** GET /search/issues のレスポンス（total_count のみ利用） */
 export interface SearchResult {
   total_count: number;
+}
+
+/** GET /repos/{o}/{r}/pulls（list）から拾う最小フィールド */
+export interface PullRequestLite {
+  number: number;
+  title: string;
+  body: string | null;
+  mergedAt: string | null;
+  createdAt: string;
+  user: string | null;
+  htmlUrl: string;
+}
+
+/** Conventional Commits の種別 */
+export type ConventionalType =
+  | "feat"
+  | "fix"
+  | "refactor"
+  | "docs"
+  | "chore"
+  | "test"
+  | "style"
+  | "perf"
+  | "build"
+  | "ci"
+  | "revert"
+  | "other";
+
+/** 種別ごとの件数 */
+export interface PrTypeCount {
+  type: ConventionalType;
+  count: number;
 }
