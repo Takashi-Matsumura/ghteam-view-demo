@@ -3,6 +3,8 @@
 // マージ済み PR をローカル AI で分析するパネル。ボタン起動のみ（読込で自動実行しない）。
 
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { ANSWER_MARKER } from "@/lib/ai/protocol";
 
 type Status = "idle" | "loading" | "done" | "error";
@@ -103,9 +105,11 @@ export function PrAnalysisPanel({ owner, repo }: { owner: string; repo: string }
       )}
 
       {answer && (
-        <div className="mt-4 whitespace-pre-wrap rounded-lg border border-black/[.06] bg-white p-4 text-sm leading-6 text-zinc-800 dark:border-white/[.1] dark:bg-zinc-950 dark:text-zinc-200">
-          {answer}
-          {loading && <span className="ml-0.5 animate-pulse">▍</span>}
+        <div className="mt-4 rounded-lg border border-black/[.06] bg-white p-4 dark:border-white/[.1] dark:bg-zinc-950">
+          <div className="prose prose-sm prose-zinc max-w-none dark:prose-invert prose-headings:scroll-m-0 prose-pre:bg-zinc-100 dark:prose-pre:bg-zinc-900">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{answer}</ReactMarkdown>
+          </div>
+          {loading && <span className="animate-pulse text-zinc-400">▍</span>}
         </div>
       )}
     </div>
