@@ -10,6 +10,7 @@ import {
   getRepo,
   getRepoLanguages,
 } from "@/lib/github/repos";
+import { getMemberContributions } from "@/lib/github/contribution";
 import { aggregateLanguages, summarizeContributors } from "@/lib/github/aggregate";
 import type {
   ContributorStat,
@@ -23,6 +24,7 @@ import { CommitTrendChart } from "@/components/CommitTrendChart";
 import { LanguageBreakdown } from "@/components/LanguageBreakdown";
 import { ContributorList } from "@/components/ContributorList";
 import { PrAnalysisPanel } from "@/components/PrAnalysisPanel";
+import { ScorecardSummary } from "@/components/ScorecardSummary";
 
 const ZERO_STATS: PullIssueStats = {
   prOpen: 0,
@@ -79,6 +81,9 @@ export default async function RepoDetail({
     contributorSummaries = fb;
     contributorSource = fb.length > 0 ? "list" : "none";
   }
+
+  // メンバー評価スコア（要約）。失敗してもページは落とさない。
+  const members = await getMemberContributions(owner, repo).catch(() => []);
 
   return (
     <main className="mx-auto w-full max-w-6xl px-6 py-8">
@@ -178,6 +183,13 @@ export default async function RepoDetail({
               variant={contributorSource === "list" ? "aggregate" : "repo"}
             />
           )}
+        </MetricCard>
+
+        <MetricCard
+          title="貢献度スコア（メンバー評価）"
+          subtitle="既定の重み（PR重視）でのランキング"
+        >
+          <ScorecardSummary owner={owner} repo={repo} members={members} />
         </MetricCard>
 
         <MetricCard
