@@ -7,9 +7,11 @@ import { cache } from "react";
 import { ghFetch, ghFetchAll } from "@/lib/github/client";
 import type {
   ContributorStat,
+  ContributorSummary,
   GitHubUser,
   Languages,
   OpenCounts,
+  PullIssueStats,
   Repo,
   SearchResult,
   WeeklyCommit,
@@ -102,4 +104,56 @@ export async function getOpenCounts(owner: string, repo: string): Promise<OpenCo
     prs: prs.data?.total_count ?? 0,
     issues: issues.data?.total_count ?? 0,
   };
+}
+
+/**
+ * PR / Issue の内訳（open / merged / total）。詳細ページ専用。
+ * Search API を 5 回使うため、ホーム（多数リポジトリ）では使わないこと。
+ */
+export async function getPullIssueStats(owner: string, repo: string): Promise<PullIssueStats> {
+  const search = (q: string) =>
+    ghFetch<SearchResult>("/search/issues", {
+      searchParams: { q: `repo:${owner}/${repo} ${q}`, per_page: 1 },
+      revalidate: 300,
+    });
+
+  const [prOpen, prMerged, prTotal, issueOpen, issueTotal] = await Promise.all([
+    search("type:pr state:open"),
+    search("type:pr is:merged"),
+    search("type:pr"),
+    search("type:issue state:open"),
+    search("type:issue"),
+  ]);
+
+  return {
+    prOpen: prOpen.data?.total_count ?? 0,
+    prMerged: prMerged.data?.total_count ?? 0,
+    prTotal: prTotal.data?.total_count ?? 0,
+    issueOpen: issueOpen.data?.total_count ?? 0,
+    issueTotal: issueTotal.data?.total_count ?? 0,
+  };
+}
+
+/**
+ * コントリビューターのフォールバック取得。
+ * stats/contributors が 202（生成中）から復帰しない場合に使う。
+ * list API は 200 で即返るが additions/deletions は持たない（0 とする）。
+ */
+export async function getContributorsFallback(
+  owner: string,
+  repo: string,
+): Promise<ContributorSummary[]> {
+  const list = await ghFetchAll<{ login: string; avatar_url: string; contributions: number }>(
+    `/repos/${owner}/${repo}/contributors`,
+    { searchParams: { per_page: 100 }, revalidate: 600, maxPages: 1 },
+  );
+  return list
+    .map((c) => ({
+      login: c.login,
+      avatarUrl: c.avatar_url,
+      commits: c.contributions,
+      additions: 0,
+      deletions: 0,
+    }))
+    .sort((a, b) => b.commits - a.commits);
 }
